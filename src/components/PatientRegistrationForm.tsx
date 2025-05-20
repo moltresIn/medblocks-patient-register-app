@@ -1,5 +1,6 @@
 import { useState } from "react";
 import clsx from "clsx";
+import { executeQuery } from "../utils/pgliteConfig";
 
 interface PatientFormData {
   fullName: string;
@@ -35,7 +36,7 @@ function PatientRegistrationForm() {
   const [formData, setFormData] = useState<PatientFormData>(initialFormData);
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-
+  const [successMessage, setSuccessMessage] = useState("");
   const validateForm = () => {
     const newErrors: Record<string, string | undefined> = {};
     if (!formData.fullName.trim()) newErrors.fullName = "Full Name is required";
@@ -71,16 +72,41 @@ function PatientRegistrationForm() {
     }
 
     setIsSubmitting(true);
-    try {
-      // Simulate form submission
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+    setSuccessMessage("");
 
+    try {
+      // Insert the patient data into the database
+      await executeQuery(
+        `INSERT INTO patients (
+          full_name, age, gender, contact_info, address, email,
+          blood_type, allergies, medical_history, insurance_provider,
+          insurance_id, emergency_contact
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          formData.fullName,
+          parseInt(formData.age),
+          formData.gender,
+          formData.contactInfo,
+          formData.address,
+          formData.email,
+          formData.bloodType,
+          formData.allergies,
+          formData.medicalHistory,
+          formData.insuranceProvider,
+          formData.insuranceId,
+          formData.emergencyContact,
+        ]
+      );
+
+      // Clear the form and show success message
       setFormData(initialFormData);
       setErrors({});
-      alert("Patient registered successfully!");
+      setSuccessMessage("Patient registered successfully!");
     } catch (error) {
       console.error("Error saving patient:", error);
-      alert("Failed to register patient. Please try again.");
+      setErrors({
+        submit: "Failed to register patient. Please try again.",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -91,6 +117,17 @@ function PatientRegistrationForm() {
       <h2 className="text-2xl font-semibold text-gray-900 mb-6">
         Register Patient
       </h2>
+      {successMessage && (
+        <div className="mb-4 p-4 bg-green-100 text-green-700 rounded-md">
+          {successMessage}
+        </div>
+      )}
+
+      {errors.submit && (
+        <div className="mb-4 p-4 bg-red-100 text-red-700 rounded-md">
+          {errors.submit}
+        </div>
+      )}
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <label
