@@ -4,7 +4,6 @@ function App() {
   async function initialize() {
     try {
       await dbPromise;
-      console.log("Database initialized successfully");
     } catch (error) {
       console.error("Failed to initialize the database:", error);
     }
