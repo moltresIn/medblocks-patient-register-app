@@ -17,6 +17,10 @@ interface PatientFormData {
   emergencyContact: string;
 }
 
+interface PatientRegistrationFormProps {
+  onPatientAdded: () => void;
+}
+
 const initialFormData: PatientFormData = {
   fullName: "",
   age: "",
@@ -32,7 +36,9 @@ const initialFormData: PatientFormData = {
   emergencyContact: "",
 };
 
-function PatientRegistrationForm() {
+function PatientRegistrationForm({
+  onPatientAdded,
+}: PatientRegistrationFormProps) {
   const [formData, setFormData] = useState<PatientFormData>(initialFormData);
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -102,6 +108,9 @@ function PatientRegistrationForm() {
       setFormData(initialFormData);
       setErrors({});
       setSuccessMessage("Patient registered successfully!");
+
+      // Notify parent component that a patient was added
+      onPatientAdded();
     } catch (error) {
       console.error("Error saving patient:", error);
       setErrors({

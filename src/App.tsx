@@ -1,115 +1,112 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState, useRef } from "react";
 import PatientRegistrationForm from "./components/PatientRegistrationForm";
 import QueryExecutor from "./components/QueryExecutor";
-import {
-  dbPromise,
-  executeQuery,
-  initializePatientTable,
-} from "./utils/pgliteConfig";
+import { initializePatientTable, onDatabaseUpdate } from "./utils/pgliteConfig";
 
 function App() {
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [isDbInitialized, setIsDbInitialized] = useState(false);
+  const updateListenerRef = useRef<(() => void) | null>(null);
+  const initAttempts = useRef(0);
+  const maxInitAttempts = 3;
+
   const initialize = useCallback(async () => {
     try {
-      await dbPromise;
+      console.log("Starting database initialization...");
+      console.log("Database instance ready");
+
       await initializePatientTable();
-      await runDatabaseDiagnostics();
+      console.log("Patient table initialized");
+
+      setIsDbInitialized(true);
+
+      console.log("Database fully initialized and ready");
+
+      setRefreshTrigger((prev) => prev + 1);
     } catch (error) {
-      console.error("Failed to initialize the database:", error);
-    }
-  }, []);
+      console.error("Initialization failed:", error);
 
-  const runDatabaseDiagnostics = useCallback(async () => {
-    try {
-      // 1. Check all tables in the database
-      const tables = await executeQuery<{ tablename: string }>(
-        "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
-      );
-      console.log("Tables in database:", tables.rows);
-
-      // 2. Check the structure of the patients table
-      const tableStructure = await executeQuery<{
-        column_name: string;
-        data_type: string;
-        is_nullable: string;
-      }>(`
-        SELECT column_name, data_type, is_nullable 
-        FROM information_schema.columns 
-        WHERE table_name = 'patients'
-      `);
-      console.log("Patients table structure:", tableStructure.rows);
-
-      // 3. Count records in patients table
-      const countResult = await executeQuery<{ count: number }>(
-        "SELECT COUNT(*) as count FROM patients"
-      );
-      console.log("Total patients:", countResult.rows[0]?.count);
-
-      // 4. Get all patients (limited to 10 if many exist)
-      await logAllPatients();
-
-      // 5. Check database size
-      const dbSize = await executeQuery<{ size: string }>(
-        "SELECT pg_size_pretty(pg_database_size(current_database())) as size"
-      );
-      console.log("Database size:", dbSize.rows[0]?.size);
-    } catch (error) {
-      console.error("Error running diagnostics:", error);
-    }
-  }, []);
-
-  const logAllPatients = useCallback(async (limit = 10) => {
-    try {
-      const result = await executeQuery<{
-        id: number;
-        full_name: string;
-        age: number;
-        gender: string;
-        created_at: string;
-      }>(
-        `
-        SELECT id, full_name, age, gender, created_at 
-        FROM patients 
-        ORDER BY created_at DESC
-        LIMIT $1
-      `,
-        [limit]
-      );
-
-      console.log(`Patients in database (first ${limit}):`);
-      console.table(result.rows);
-    } catch (error) {
-      console.error("Error fetching patients:", error);
+      initAttempts.current++;
+      if (initAttempts.current < maxInitAttempts) {
+        console.log(
+          `Retrying initialization (attempt ${
+            initAttempts.current + 1
+          }/${maxInitAttempts})...`
+        );
+        setTimeout(initialize, 1000);
+      } else {
+        setIsDbInitialized(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    initialize();
+    let mounted = true;
 
-    const interval = setInterval(() => {
-      logAllPatients();
-    }, 10000);
+    const init = async () => {
+      try {
+        await initialize();
+      } catch (error) {
+        console.error("Initialization error:", error);
+        if (mounted) {
+          setIsDbInitialized(false);
+        }
+      }
+    };
+
+    init();
 
     return () => {
-      clearInterval(interval);
+      mounted = false;
     };
-  }, [initialize, logAllPatients]);
+  }, [initialize]);
+
+  useEffect(() => {
+    if (!isDbInitialized) return;
+
+    if (updateListenerRef.current) {
+      updateListenerRef.current();
+      updateListenerRef.current = null;
+    }
+
+    try {
+      const unsubscribe = onDatabaseUpdate((event) => {
+        console.log("App received database update:", event);
+        setRefreshTrigger((prev) => prev + 1);
+      });
+
+      updateListenerRef.current = unsubscribe;
+
+      return () => {
+        if (updateListenerRef.current) {
+          updateListenerRef.current();
+          updateListenerRef.current = null;
+        }
+      };
+    } catch (error) {
+      console.error("Error setting up database update listener:", error);
+    }
+  }, [isDbInitialized]);
 
   return (
-    <>
-      <div className="min-h-screen bg-gray-50">
-        <div className=" mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex items-center justify-between mb-8">
-            <h1 className="text-3xl md:text-4xl font-bold text-gray-900">
-              Patient Registration App
-            </h1>
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <PatientRegistrationForm />
-            <QueryExecutor />
-          </div>
+    <div className="min-h-screen bg-gray-50">
+      <div className="mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-3xl md:text-4xl font-bold text-gray-900">
+            Patient Registration App
+          </h1>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <PatientRegistrationForm
+            onPatientAdded={() => setRefreshTrigger((prev) => prev + 1)}
+          />
+          <QueryExecutor
+            refreshTrigger={refreshTrigger}
+            isDbInitialized={isDbInitialized}
+          />
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
